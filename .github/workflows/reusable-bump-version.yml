@@ -1,0 +1,62 @@
+name: Reusable workflow to bump up and push version in GitHub
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version increment type (major, minor, patch)'
+        required: true
+        type: string
+    outputs:
+      NEW_VERSION:
+        description: 'New version number'
+        value: ${{ jobs.update-version.outputs.NEW_VERSION }}
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  update-version:
+    runs-on: ubuntu-latest
+    outputs:
+      NEW_VERSION: ${{ steps.bump-version.outputs.NEW_VERSION }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4.1.4
+        with:
+          ref: main
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.2
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Install Semver and jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install python3-semver
+          sudo apt-get install jq
+          semver --version
+
+      - name: Bump version
+        id: bump-version
+        run: |
+          current_version=$(jq -r '.version' package.json)
+          echo "Current version is $current_version"
+          new_version=$(semver -i ${{ inputs.version }} $current_version)
+          echo "New version is $new_version"
+          jq ".version = \"$new_version\"" package.json > package.json.tmp
+          mv package.json.tmp package.json
+          echo "NEW_VERSION=$new_version" >> $GITHUB_OUTPUT
+
+      - name: Commit changes
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'gha@github.com'
+          git add package.json
+          git commit -m "Bump version to $new_version"
+          git push origin main
